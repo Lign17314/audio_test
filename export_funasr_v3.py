@@ -187,9 +187,9 @@ def beam_search(
     return hyps
 
 
-cmvn_file = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2"
-init_param = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt"
-data_in = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/unittest/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_13.wav"
+cmvn_file = "train/am.mvn.dim80_l2r2"
+init_param = "/root/volume/ctc/train/work_dir/avg_10_funasr.pt"
+data_in = "/root/volume/ctc/train/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_13.wav"
 data_type = "sound"
 audio_fs = 16000
 device = "cpu"
@@ -316,7 +316,7 @@ hyps = beam_search(
     logits=raw_logp, logits_lengths=xlen, keywords_tokenset=keywords_idxset
 )
 
-
+print(hyps)
 prefix_ids = hyps[0][0]
 # path_score = one_hyp[1]
 prefix_nodes = hyps[0][2]
