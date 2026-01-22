@@ -282,7 +282,7 @@ def verify_numerical_equality(pytorch_encoder, onnx_path, test_input):
 # ======================== 主流程 ========================
 if __name__ == "__main__":
     # 1. 配置参数
-    cmvn_file = "train/am.mvn.dim80_l2r2"
+    cmvn_file = "/root/volume/ctc/train/am.mvn.dim80_l2r2"
     init_param = "/root/volume/ctc/train/work_dir/avg_10_funasr.pt"
     data_in = "/root/volume/ctc/kws_xiaoyunxiaoyun.wav"
     device = "cpu"

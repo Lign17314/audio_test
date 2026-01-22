@@ -187,7 +187,7 @@ def beam_search(
     return hyps
 
 
-cmvn_file = "train/am.mvn.dim80_l2r2"
+cmvn_file = "/root/volume/ctc/train/am.mvn.dim80_l2r2"
 init_param = "/root/volume/ctc/train/work_dir/avg_10_funasr.pt"
 data_in = "/root/volume/ctc/train/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_13.wav"
 data_type = "sound"
