@@ -1,370 +1,333 @@
-from funasr import AutoModel
 import torch
-import os
-import torch.nn as nn
-import time
-
-import json
-import time
-import copy
 import torch
-import random
-import string
-import logging
-import os.path
 import numpy as np
-from tqdm import tqdm
-from typing import Tuple, Dict
-
-from omegaconf import DictConfig, ListConfig
-from funasr.utils.misc import deep_update
-from funasr.register import tables
-from funasr.utils.load_utils import load_bytes
-from funasr.download.file import download_from_url
-from funasr.utils.timestamp_tools import timestamp_sentence
-from funasr.utils.timestamp_tools import timestamp_sentence_en
-from funasr.download.download_model_from_hub import download_model
-from funasr.utils.vad_utils import slice_padding_audio_samples
-from funasr.utils.vad_utils import merge_vad
-from funasr.utils.load_utils import load_audio_text_image_video
-from funasr.train_utils.set_all_random_seed import set_all_random_seed
 from funasr.train_utils.load_pretrained_model import load_pretrained_model
-from funasr.utils import export_utils
-from funasr.utils import misc
-from funasr.utils.load_utils import load_audio_text_image_video, extract_fbank
-from funasr.utils.datadir_writer import DatadirWriter
-from python.ctc_decoder import KwsCtcPrefixDecoder
-import re
-import logging
-from python.ctc_e import CTC
 import torch
 import torchaudio
-from python.model import FSMN, WavFrontend
-model = AutoModel(
-    model="iic/speech_charctc_kws_phone-xiaoyun",
-    keywords="小云小云",
-    output_dir="./outputs/debug",
-    device='cpu'
-)
-
-test_wav = "https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/KWS/pos_testset/kws_xiaoyunxiaoyun.wav"
-
-
-def deep_update(original, update):
-    for key, value in update.items():
-        if isinstance(value, dict) and key in original:
-            if len(value) == 0:
-                original[key] = value
-            deep_update(original[key], value)
-        else:
-            original[key] = value
-
-
-
-def prepare_data_iterator(data_in, input_len=None, data_type=None, key=None):
-    """ """
-    data_list = []
-    key_list = []
-    filelist = [".scp", ".txt", ".json", ".jsonl", ".text"]
-
-    chars = string.ascii_letters + string.digits
-    if isinstance(data_in, str):
-        if data_in.startswith("http://") or data_in.startswith("https://"):  # url
-            data_in = download_from_url(data_in)
-
-    if isinstance(data_in, str) and os.path.exists(
-        data_in
-    ):  # wav_path; filelist: wav.scp, file.jsonl;text.txt;
-        _, file_extension = os.path.splitext(data_in)
-        file_extension = file_extension.lower()
-        if file_extension in filelist:  # filelist: wav.scp, file.jsonl;text.txt;
-            with open(data_in, encoding="utf-8") as fin:
-                for line in fin:
-                    key = "rand_key_" + "".join(random.choice(chars) for _ in range(13))
-                    if data_in.endswith(".jsonl"):  # file.jsonl: json.dumps({"source": data})
-                        lines = json.loads(line.strip())
-                        data = lines["source"]
-                        key = data["key"] if "key" in data else key
-                    else:  # filelist, wav.scp, text.txt: id \t data or data
-                        lines = line.strip().split(maxsplit=1)
-                        data = lines[1] if len(lines) > 1 else lines[0]
-                        key = lines[0] if len(lines) > 1 else key
-
-                    data_list.append(data)
-                    key_list.append(key)
-        else:
-            if key is None:
-                # key = "rand_key_" + "".join(random.choice(chars) for _ in range(13))
-                key = misc.extract_filename_without_extension(data_in)
-            data_list = [data_in]
-            key_list = [key]
-    elif isinstance(data_in, (list, tuple)):
-        if data_type is not None and isinstance(data_type, (list, tuple)):  # mutiple inputs
-            data_list_tmp = []
-            for data_in_i, data_type_i in zip(data_in, data_type):
-                key_list, data_list_i = prepare_data_iterator(
-                    data_in=data_in_i, data_type=data_type_i
-                )
-                data_list_tmp.append(data_list_i)
-            data_list = []
-            for item in zip(*data_list_tmp):
-                data_list.append(item)
-        else:
-            # [audio sample point, fbank, text]
-            data_list = data_in
-            key_list = []
-            for data_i in data_in:
-                if isinstance(data_i, str) and os.path.exists(data_i):
-                    key = misc.extract_filename_without_extension(data_i)
-                else:
-                    if key is None:
-                        key = "rand_key_" + "".join(random.choice(chars) for _ in range(13))
-                key_list.append(key)
-
-    else:  # raw text; audio sample point, fbank; bytes
-        if isinstance(data_in, bytes):  # audio bytes
-            data_in = load_bytes(data_in)
-        if key is None:
-            key = "rand_key_" + "".join(random.choice(chars) for _ in range(13))
-        data_list = [data_in]
-        key_list = [key]
-
-    return key_list, data_list
-
-from torch.cuda.amp import autocast
-def fsmn_kws_inference(
-    self,
-    data_in,
-    key: list=None,
-    tokenizer=None,
-    # frontend=None,
-    **kwargs,
-):
-
-    frontend_conf={'fs': 16000, 'window': 'hamming', 'n_mels': 80, 'frame_length': 25, 'frame_shift': 10, 'lfr_m': 5, 'lfr_n': 3, 'cmvn_file': '/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2'}
-    frontend=WavFrontend(**frontend_conf)
-    ctc_conf={'dropout_rate': 0.0, 'ctc_type': 'builtin', 'reduce': True, 'ignore_nan_grad': True, 'extra_linear': False}
-    vocab_size=2599
-    ctc = CTC(
-        odim=vocab_size, encoder_output_size=2599, **ctc_conf
-    )
-    encoder_conf={'input_dim': 400, 'input_affine_dim': 140, 'fsmn_layers': 4, 'linear_dim': 250, 'proj_dim': 128, 'lorder': 10, 'rorder': 2, 'lstride': 1, 'rstride': 1, 'output_affine_dim': 140, 'output_dim': 2599, 'use_softmax': False}
-
-    print("frontend", frontend.fs)
-    keywords = kwargs.get("keywords")
-    kws_decoder = KwsCtcPrefixDecoder(
-        ctc=ctc,
-        keywords=keywords,
-        token_list=tokenizer.token_list,
-        seg_dict=tokenizer.seg_dict,
-    )
-    data_type="sound"
-    audio_fs=16000
-    device="cpu"
-
-    meta_data = {}
-    # extract fbank feats
-    audio_sample_list = load_audio_text_image_video(data_in, fs=frontend.fs, audio_fs=audio_fs, data_type=data_type, tokenizer=tokenizer)
-    speech, speech_lengths = extract_fbank(audio_sample_list, data_type=data_type, frontend=frontend)
-    meta_data["batch_data_time"] = speech_lengths.sum().item() * frontend.frame_shift * frontend.lfr_n / 1000
-    speech = speech.to(device=device)
-    speech_lengths = speech_lengths.to(device=device)
-    # Encoder
-    # encoder_out, encoder_out_lens = self.encode(speech, speech_lengths)
-
-
-    # encoder_out = self.encoder(speech)
-    # encoder_out_lens = speech_lengths
-
-    model1 = FsmnKWS(encoder="FSMN",encoder_conf=encoder_conf,ctc_conf=ctc_conf,input_size=400,vocab_size=2599)
-    print(model1)
-
-    # 加载参数
-    init_param = "/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt"
-    if init_param is not None:
-        if os.path.exists(init_param):
-            logging.info(f"Loading pretrained params from {init_param}")
-            load_pretrained_model(
-                model=model1,
-                path=init_param,
-                ignore_init_mismatch=kwargs.get("ignore_init_mismatch", True),
-                oss_bucket=kwargs.get("oss_bucket", None),
-                scope_map=kwargs.get("scope_map", []),
-                excludes=kwargs.get("excludes", None),
-            )
-        else:
-            print(f"error, init_param does not exist!: {init_param}")
-    model1.eval()
-    encoder_out = model1.encoder(speech) 
-
-
-    encoder_out_lens = speech_lengths
-
-    if isinstance(encoder_out, tuple):
-        encoder_out = encoder_out[0]
-    results = []
-    if kwargs.get("output_dir") is not None:
-        if not hasattr(self, "writer"):
-            self.writer = DatadirWriter(kwargs.get("output_dir"))
-    for i in range(encoder_out.size(0)):
-        x = encoder_out[i, :encoder_out_lens[i], :]
-        detect_result = kws_decoder.decode(x)
-        is_deted, det_keyword, det_score = detect_result[0], detect_result[1], detect_result[2]
-        if is_deted:
-            self.writer["detect"][key[i]] = "detected " + det_keyword + " " + str(det_score)
-            det_info = "detected " + det_keyword + " " + str(det_score)
-        else:
-            self.writer["detect"][key[i]] = "rejected"
-            det_info = "rejected"
-        result_i = {"key": key[i], "text": det_info}
-        results.append(result_i)
-    return results, meta_data
-
-
-def inference(self,model=None):
-    kwargs = self.kwargs
-    deep_update(kwargs, {})
-    # print(kwargs)
-    model.eval()
-    key_list = ['kws_xiaoyunxiaoyun'] 
-    data_list = ['/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/unittest/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_47.wav']
-    speed_stats = {}
-    asr_result_list = []
-    time_speech_total = 0.0
-    time_escape_total = 0.0
-    batch = {"data_in": data_list[0], "key": key_list[0]}
-    print(batch)
-    time1 = time.perf_counter()
-    with torch.no_grad():
-        # res = model.inference(**batch, **kwargs)
-        res = fsmn_kws_inference(self = model, **batch, **kwargs)
-        print(res)
-        if isinstance(res, (list, tuple)):
-            results = res[0] if len(res) > 0 else [{"text": ""}]
-            meta_data = res[1] if len(res) > 1 else {}
-    time2 = time.perf_counter()
-    asr_result_list.extend(results)
-    # batch_data_time = time_per_frame_s * data_batch_i["speech_lengths"].sum().item()
-    batch_data_time = meta_data.get("batch_data_time", -1)
-    time_escape = time2 - time1
-    speed_stats["load_data"] = meta_data.get("load_data", 0.0)
-    speed_stats["extract_feat"] = meta_data.get("extract_feat", 0.0)
-    speed_stats["forward"] = f"{time_escape:0.3f}"
-    speed_stats["batch_size"] = f"{len(results)}"
-    speed_stats["rtf"] = f"{(time_escape) / batch_data_time:0.3f}"
-    time_speech_total += batch_data_time
-    time_escape_total += time_escape
-    torch.cuda.empty_cache()
-    return asr_result_list
-
-# print(model.model)
-
-
-
-# print(model.model)
-# res = inference(model, model=model.model)
-
-# # res = model.generate(input=test_wav, cache={},)
-# print(res)
-
 from python.model import FsmnKWS
+import torchaudio.compliance.kaldi as kaldi
+import torch.nn.functional as F
+from collections import defaultdict
+import math
+from typing import List, Tuple
 
 
-kwargs = model.kwargs
-
-deep_update(kwargs, {})
-tokenizer = kwargs.get("tokenizer")
-
-encoder_conf={'input_dim': 400, 'input_affine_dim': 140, 'fsmn_layers': 4, 'linear_dim': 250, 'proj_dim': 128, 'lorder': 10, 'rorder': 2, 'lstride': 1, 'rstride': 1, 'output_affine_dim': 140, 'output_dim': 2599, 'use_softmax': False}
-ctc_conf={'dropout_rate': 0.0, 'ctc_type': 'builtin', 'reduce': True, 'ignore_nan_grad': True, 'extra_linear': False}
-vocab_size=2599
-
-ctc = CTC(
-    odim=vocab_size, encoder_output_size=2599, **ctc_conf
-)
-
-
-model1 = FsmnKWS(encoder="FSMN",encoder_conf=encoder_conf,ctc_conf=ctc_conf,input_size=400,vocab_size=2599)
-# print(model1)
-# 加载参数
-init_param = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/basetrain_fsmn_4e_l10r2_250_128_fdim80_t2599.pt"
-# init_param = "/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt"
-load_pretrained_model(
-    model=model1,
-    path=init_param,
-    ignore_init_mismatch=kwargs.get("ignore_init_mismatch", True),
-    oss_bucket=kwargs.get("oss_bucket", None),
-    scope_map=kwargs.get("scope_map", []),
-    excludes=kwargs.get("excludes", None),
-)
-model1.eval()
-
-from torch.nn.utils.rnn import pad_sequence
+def is_sublist(main_list, check_list):
+    if len(main_list) < len(check_list):
+        return -1
+    if len(main_list) == len(check_list):
+        return 0 if main_list == check_list else -1
+    for i in range(len(main_list) - len(check_list)):
+        if main_list[i] == check_list[0]:
+            for j in range(len(check_list)):
+                if main_list[i + j] != check_list[j]:
+                    break
+            else:
+                return i
+    else:
+        return -1
 
 
-def extract_fbank1(data, data_len=None, data_type: str = "sound", frontend=None, **kwargs):
+def load_cmvn(cmvn_file):
+    with open(cmvn_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    means_list = []
+    vars_list = []
+    for i in range(len(lines)):
+        line_item = lines[i].split()
+        if line_item[0] == "<AddShift>":
+            line_item = lines[i + 1].split()
+            if line_item[0] == "<LearnRateCoef>":
+                add_shift_line = line_item[3 : (len(line_item) - 1)]
+                means_list = list(add_shift_line)
+                continue
+        elif line_item[0] == "<Rescale>":
+            line_item = lines[i + 1].split()
+            if line_item[0] == "<LearnRateCoef>":
+                rescale_line = line_item[3 : (len(line_item) - 1)]
+                vars_list = list(rescale_line)
+                continue
+    means = np.array(means_list).astype(np.float32)
+    vars = np.array(vars_list).astype(np.float32)
+    cmvn = np.array([means, vars])
+    cmvn = torch.as_tensor(cmvn, dtype=torch.float32)
+    return cmvn
 
-    print("ssssss 1", len(data.shape))
-    if len(data.shape) < 2:
-        data = data[None, :]  # data: [batch, N]
-    data_len = [data.shape[1]] if data_len is None else data_len
-    data, data_len = frontend(data, data_len, **kwargs)
-    return data.to(torch.float32), data_len.to(torch.int32)
 
-data_in="test_xiaoyun.wav"
-data_type="sound"
-audio_fs=16000
-device="cpu"
+def apply_cmvn(inputs, cmvn):  # noqa
+    """
+    Apply CMVN with mvn data
+    """
+
+    device = inputs.device
+    dtype = inputs.dtype
+    frame, dim = inputs.shape
+
+    means = cmvn[0:1, :dim]
+    vars = cmvn[1:2, :dim]
+    inputs += means.to(device)
+    inputs *= vars.to(device)
+
+    return inputs.type(torch.float32)
+
+
+def apply_lfr(inputs, lfr_m, lfr_n):
+    LFR_inputs = []
+    T = inputs.shape[0]
+    T_lfr = int(np.ceil(T / lfr_n))
+    left_padding = inputs[0].repeat((lfr_m - 1) // 2, 1)
+    inputs = torch.vstack((left_padding, inputs))
+    T = T + (lfr_m - 1) // 2
+    for i in range(T_lfr):
+        if lfr_m <= T - i * lfr_n:
+            LFR_inputs.append((inputs[i * lfr_n : i * lfr_n + lfr_m]).view(1, -1))
+        else:  # process last LFR frame
+            num_padding = lfr_m - (T - i * lfr_n)
+            frame = (inputs[i * lfr_n :]).view(-1)
+            for _ in range(num_padding):
+                frame = torch.hstack((frame, inputs[-1]))
+            LFR_inputs.append(frame)
+    LFR_outputs = torch.vstack(LFR_inputs)
+    return LFR_outputs.type(torch.float32)
+
+
+def beam_search(
+    logits: torch.Tensor,
+    logits_lengths: torch.Tensor,
+    keywords_tokenset: set = None,
+    score_beam_size: int = 3,
+    path_beam_size: int = 20,
+) -> Tuple[List[List[int]], torch.Tensor]:
+    """CTC prefix beam search inner implementation
+    Args:
+        logits (torch.Tensor): (1, max_len, vocab_size)
+        logits_lengths (torch.Tensor): (1, )
+        keywords_tokenset (set): token set for filtering score
+        score_beam_size (int): beam size for score
+        path_beam_size (int): beam size for path
+    Returns:
+        List[List[int]]: nbest results
+    """
+    maxlen = logits.size(0)
+    ctc_probs = logits
+    cur_hyps = [(tuple(), (1.0, 0.0, []))]
+    print("maxlen", maxlen)
+    # CTC beam search step by step
+    for t in range(0, maxlen):
+        probs = ctc_probs[t]  # (vocab_size,)
+        # key: prefix, value (pb, pnb), default value(-inf, -inf)
+        next_hyps = defaultdict(lambda: (0.0, 0.0, []))
+        # 2.1 First beam prune: select topk best
+        top_k_probs, top_k_index = probs.topk(score_beam_size)  # (score_beam_size,)
+        # filter prob score that is too small
+        filter_probs = []
+        filter_index = []
+        for prob, idx in zip(top_k_probs.tolist(), top_k_index.tolist()):
+            if keywords_tokenset is not None:
+                if prob > 0.05 and idx in keywords_tokenset:
+                    filter_probs.append(prob)
+                    filter_index.append(idx)
+            else:
+                if prob > 0.05:
+                    filter_probs.append(prob)
+                    filter_index.append(idx)
+        if len(filter_index) == 0:
+            continue
+        for s in filter_index:
+            ps = probs[s].item()
+            if s != 0:
+                print(f"frame:{t}, token:{s}, score:{ps}")
+            for prefix, (pb, pnb, cur_nodes) in cur_hyps:
+                last = prefix[-1] if len(prefix) > 0 else None
+                if s == 0:  # blank
+                    n_pb, n_pnb, nodes = next_hyps[prefix]
+                    n_pb = n_pb + pb * ps + pnb * ps
+                    nodes = cur_nodes.copy()
+                    next_hyps[prefix] = (n_pb, n_pnb, nodes)
+                elif s == last:
+                    if not math.isclose(pnb, 0.0, abs_tol=0.000001):
+                        # Update *ss -> *s;
+                        n_pb, n_pnb, nodes = next_hyps[prefix]
+                        n_pnb = n_pnb + pnb * ps
+                        nodes = cur_nodes.copy()
+                        if ps > nodes[-1]["prob"]:  # update frame and prob
+                            nodes[-1]["prob"] = ps
+                            nodes[-1]["frame"] = t
+                        next_hyps[prefix] = (n_pb, n_pnb, nodes)
+                    if not math.isclose(pb, 0.0, abs_tol=0.000001):
+                        # Update *s-s -> *ss, - is for blank
+                        n_prefix = prefix + (s,)
+                        n_pb, n_pnb, nodes = next_hyps[n_prefix]
+                        n_pnb = n_pnb + pb * ps
+                        nodes = cur_nodes.copy()
+                        nodes.append(
+                            dict(token=s, frame=t, prob=ps)
+                        )  # to record token prob
+                        next_hyps[n_prefix] = (n_pb, n_pnb, nodes)
+                else:
+                    n_prefix = prefix + (s,)
+                    n_pb, n_pnb, nodes = next_hyps[n_prefix]
+                    if nodes:
+                        if ps > nodes[-1]["prob"]:  # update frame and prob
+                            nodes[-1]["prob"] = ps
+                            nodes[-1]["frame"] = t
+                    else:
+                        nodes = cur_nodes.copy()
+                        nodes.append(
+                            dict(token=s, frame=t, prob=ps)
+                        )  # to record token prob
+                    n_pnb = n_pnb + pb * ps + pnb * ps
+                    next_hyps[n_prefix] = (n_pb, n_pnb, nodes)
+        # 2.2 Second beam prune
+        next_hyps = sorted(
+            next_hyps.items(), key=lambda x: (x[1][0] + x[1][1]), reverse=True
+        )
+        cur_hyps = next_hyps[:path_beam_size]
+    hyps = [(y[0], y[1][0] + y[1][1], y[1][2]) for y in cur_hyps]
+    return hyps
+
+
+cmvn_file = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2"
+init_param = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt"
+data_in = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/unittest/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_13.wav"
+data_type = "sound"
+audio_fs = 16000
+device = "cpu"
 meta_data = {}
+reduce_channels = True
+
+# 前端特征提取配置（适配小云小云KWS场景）
+fs = 16000  # 音频采样率
+window = "hamming"  # 窗函数类型（汉明窗）
+n_mels = 80  # FBank梅尔滤波器数量（80维）
+frame_length = 25  # 帧长（ms）
+frame_shift = 10  # 帧移（ms）
+lfr_m = 5  # LFR帧合并数（5帧合并）
+lfr_n = 3  # LFR帧移（每3帧取一次）
+dither = 1
+snip_edges = True
+keywords_idxset = {0, 1462, 976}
+lab = (1462, 976, 1462, 976)
+
+
+encoder_conf = {
+    "input_dim": 400,
+    "input_affine_dim": 140,
+    "fsmn_layers": 4,
+    "linear_dim": 250,
+    "proj_dim": 128,
+    "lorder": 10,
+    "rorder": 2,
+    "lstride": 1,
+    "rstride": 1,
+    "output_affine_dim": 140,
+    "output_dim": 2599,
+    "use_softmax": False,
+}
+
+model = FsmnKWS(
+    encoder="FSMN", encoder_conf=encoder_conf, input_size=400, vocab_size=2599
+)
+# print(model)
+# 加载参数
+
+load_pretrained_model(
+    model=model,
+    path=init_param,
+    ignore_init_mismatch=True,
+    oss_bucket=None,
+    scope_map=[],
+    excludes=None,
+)
+model.eval()
+
 # extract fbank feats
 audio_sample_list, audio_fs = torchaudio.load(data_in)
-if kwargs.get("reduce_channels", True):
+if reduce_channels == True:
     audio_sample_list = audio_sample_list.mean(0)
-print(audio_sample_list)
+print(
+    "audio_sample_list",
+    audio_sample_list,
+    "audio_sample_list.shape",
+    audio_sample_list.shape,
+)
+if len(audio_sample_list.shape) < 2:  # 里面只有一个情况下扩充成两个
+    print("len(audio_sample_list.shape)", len(audio_sample_list.shape))
+    audio_sample_list = audio_sample_list[None, :]  # data: [batch, N]
+data_len = [audio_sample_list.shape[1]]
 
-frontend_conf={'fs': 16000, 'window': 'hamming', 'n_mels': 80, 'frame_length': 25, 'frame_shift': 10, 'lfr_m': 5, 'lfr_n': 3, 'cmvn_file': '/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2'}
-frontend=WavFrontend(**frontend_conf)
 
-speech, speech_lengths = extract_fbank1(audio_sample_list, data_type=data_type, frontend=frontend)
-meta_data["batch_data_time"] = speech_lengths.sum().item() * frontend.frame_shift * frontend.lfr_n / 1000
-speech = speech.to(device=device)
-speech_lengths = speech_lengths.to(device=device)
+feats = []
+feats_lens = []
+cmvn = load_cmvn(cmvn_file)
+waveform_length = data_len[0]
+waveform = audio_sample_list[0][:waveform_length]
+# upsacle_samples
+print("waveform", waveform)
+# 转换成16 位整型 PCM
+waveform = waveform * (1 << 15)
+print("waveform_length", waveform_length)
+waveform = waveform.unsqueeze(0)
+# 提取fbank
+mat = kaldi.fbank(
+    waveform,
+    num_mel_bins=n_mels,
+    frame_length=min(frame_length, waveform_length / fs * 1000),
+    frame_shift=frame_shift,
+    dither=dither,
+    energy_floor=0.0,
+    window_type=window,
+    sample_frequency=fs,
+    snip_edges=snip_edges,
+)
+mat = apply_lfr(mat, lfr_m, lfr_n)
+mat = apply_cmvn(mat, cmvn)
+feat_length = mat.size(0)
+feats.append(mat)
+feats_lens.append(feat_length)
+feats_lens = torch.as_tensor(feats_lens)
+feats_pad = feats[0][None, :, :]
 
-# print(speech,speech_lengths)
+audio_sample_list = feats_pad
+data_len = feats_lens
+
+speech = audio_sample_list.to(torch.float32)
+speech_lengths = data_len.to(torch.int32)
+
+meta_data["batch_data_time"] = speech_lengths.sum().item() * frame_shift * lfr_n / 1000
+
 
 # Encoder
-encoder_out = model1.encoder(speech) 
+encoder_out = model.encoder(speech)
 
 
 encoder_out_lens = speech_lengths
 # print(encoder_out)
 
-keywords="小云小云"
-key='kws_xiaoyunxiaoyun'
-kws_decoder = KwsCtcPrefixDecoder(
-        ctc=ctc,
-        keywords=keywords,
-        token_list=tokenizer.token_list,
-        seg_dict=tokenizer.seg_dict,
-    )
+print("encoder_out.size(0)", encoder_out.size(0))
+x = encoder_out[0, : encoder_out_lens[0], :]
 
-results = []
-print("encoder_out.size(0)",encoder_out.size(0))
-for i in range(encoder_out.size(0)):
-    x = encoder_out[i, :encoder_out_lens[i], :]
-    detect_result = kws_decoder.decode(x)
-    print(detect_result)
-    is_deted, det_keyword, det_score = detect_result[0], detect_result[1], detect_result[2]
-    print("is_deted", is_deted)
-    if is_deted:
-        # self.writer["detect"][key[i]] = "detected " + det_keyword + " " + str(det_score)
-        det_info = "detected " + det_keyword + " " + str(det_score)
-    else:
-        # self.writer["detect"][key[i]] = "rejected"
-        det_info = "rejected"
-    result_i = {"key": key[i], "text": det_info}
-    results.append(result_i)
-print("results", results)
-# res = inference(model, model=model.model)
+raw_logp = F.softmax(x.unsqueeze(0), dim=2).detach().squeeze(0).cpu()
+xlen = torch.tensor([raw_logp.size(1)])
 
 
+
+hyps = beam_search(
+    logits=raw_logp, logits_lengths=xlen, keywords_tokenset=keywords_idxset
+)
+
+
+prefix_ids = hyps[0][0]
+# path_score = one_hyp[1]
+prefix_nodes = hyps[0][2]
+
+isHit = 0
+
+offset = is_sublist(prefix_ids, lab)
+hit_score = 1.0
+if offset != -1:
+    for idx in range(offset, offset + len(lab)):
+        hit_score *= prefix_nodes[idx]["prob"]
+        isHit = 1
+hit_score = math.sqrt(hit_score)
+print("hit_score", hit_score, isHit)

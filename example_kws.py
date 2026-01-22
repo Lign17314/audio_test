@@ -9,7 +9,7 @@ from modelscope.trainers import build_trainer
 import torch.utils.data as data  # 新增：导入DataLoader
 
 def main():
-    enable_training = False
+    enable_training = True
     enable_testing = True
     work_dir = './work_dir'
 

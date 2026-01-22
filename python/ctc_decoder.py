@@ -7,7 +7,7 @@ import math
 from typing import Tuple, Dict
 from typing import List, Optional, Tuple
 from collections import defaultdict
-
+import torch.nn.functional as F
 symbol_str = '[’!"#$%&\'()*+,-./:;<>=?@，。?★、…【】《》？“”‘’！[\\]^_`{|}~\s]+'
 
 
