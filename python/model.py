@@ -286,7 +286,7 @@ class FsmnKWS(torch.nn.Module):
         super().__init__()
 
         encoder = FSMN(**encoder_conf)
-        print("encoder_conf",encoder_conf)
+        # print("encoder_conf",encoder_conf)
         encoder_output_size = encoder.output_size()
         if ctc_conf is None:
             ctc_conf = {}

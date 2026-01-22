@@ -38,6 +38,7 @@ import re
 import logging
 from python.ctc_e import CTC
 import torch
+import torchaudio
 from python.model import FSMN, WavFrontend
 model = AutoModel(
     model="iic/speech_charctc_kws_phone-xiaoyun",
@@ -274,8 +275,6 @@ kwargs = model.kwargs
 deep_update(kwargs, {})
 tokenizer = kwargs.get("tokenizer")
 
-frontend_conf={'fs': 16000, 'window': 'hamming', 'n_mels': 80, 'frame_length': 25, 'frame_shift': 10, 'lfr_m': 5, 'lfr_n': 3, 'cmvn_file': '/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2'}
-frontend=WavFrontend(**frontend_conf)
 encoder_conf={'input_dim': 400, 'input_affine_dim': 140, 'fsmn_layers': 4, 'linear_dim': 250, 'proj_dim': 128, 'lorder': 10, 'rorder': 2, 'lstride': 1, 'rstride': 1, 'output_affine_dim': 140, 'output_dim': 2599, 'use_softmax': False}
 ctc_conf={'dropout_rate': 0.0, 'ctc_type': 'builtin', 'reduce': True, 'ignore_nan_grad': True, 'extra_linear': False}
 vocab_size=2599
@@ -285,28 +284,32 @@ ctc = CTC(
 )
 
 
-
 model1 = FsmnKWS(encoder="FSMN",encoder_conf=encoder_conf,ctc_conf=ctc_conf,input_size=400,vocab_size=2599)
-print(model1)
+# print(model1)
 # 加载参数
 init_param = "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/basetrain_fsmn_4e_l10r2_250_128_fdim80_t2599.pt"
 # init_param = "/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt"
-if init_param is not None:
-    if os.path.exists(init_param):
-        logging.info(f"Loading pretrained params from {init_param}")
-        load_pretrained_model(
-            model=model1,
-            path=init_param,
-            ignore_init_mismatch=kwargs.get("ignore_init_mismatch", True),
-            oss_bucket=kwargs.get("oss_bucket", None),
-            scope_map=kwargs.get("scope_map", []),
-            excludes=kwargs.get("excludes", None),
-        )
-    else:
-        print(f"error, init_param does not exist!: {init_param}")
+load_pretrained_model(
+    model=model1,
+    path=init_param,
+    ignore_init_mismatch=kwargs.get("ignore_init_mismatch", True),
+    oss_bucket=kwargs.get("oss_bucket", None),
+    scope_map=kwargs.get("scope_map", []),
+    excludes=kwargs.get("excludes", None),
+)
 model1.eval()
 
+from torch.nn.utils.rnn import pad_sequence
 
+
+def extract_fbank1(data, data_len=None, data_type: str = "sound", frontend=None, **kwargs):
+
+    print("ssssss 1", len(data.shape))
+    if len(data.shape) < 2:
+        data = data[None, :]  # data: [batch, N]
+    data_len = [data.shape[1]] if data_len is None else data_len
+    data, data_len = frontend(data, data_len, **kwargs)
+    return data.to(torch.float32), data_len.to(torch.int32)
 
 data_in="test_xiaoyun.wav"
 data_type="sound"
@@ -314,8 +317,15 @@ audio_fs=16000
 device="cpu"
 meta_data = {}
 # extract fbank feats
-audio_sample_list = load_audio_text_image_video(data_in, fs=frontend.fs, audio_fs=audio_fs, data_type=data_type, tokenizer=tokenizer)
-speech, speech_lengths = extract_fbank(audio_sample_list, data_type=data_type, frontend=frontend)
+audio_sample_list, audio_fs = torchaudio.load(data_in)
+if kwargs.get("reduce_channels", True):
+    audio_sample_list = audio_sample_list.mean(0)
+print(audio_sample_list)
+
+frontend_conf={'fs': 16000, 'window': 'hamming', 'n_mels': 80, 'frame_length': 25, 'frame_shift': 10, 'lfr_m': 5, 'lfr_n': 3, 'cmvn_file': '/mnt/workspace/.cache/modelscope/iic/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2'}
+frontend=WavFrontend(**frontend_conf)
+
+speech, speech_lengths = extract_fbank1(audio_sample_list, data_type=data_type, frontend=frontend)
 meta_data["batch_data_time"] = speech_lengths.sum().item() * frontend.frame_shift * frontend.lfr_n / 1000
 speech = speech.to(device=device)
 speech_lengths = speech_lengths.to(device=device)
