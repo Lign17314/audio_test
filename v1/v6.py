@@ -381,7 +381,7 @@ if __name__ == "__main__":
 
     # 5. 导出ONNX
     print("\n=== 导出ONNX模型 ===")
-    onnx_path = export_encoder_precise(model.encoder, speech)
+    onnx_path = export_encoder_precise(model.encoder, speech,output_path="/root/volume/ctc/train/v1/kws_encoder_final.onnx")
     
     if onnx_path is None:
         exit(1)

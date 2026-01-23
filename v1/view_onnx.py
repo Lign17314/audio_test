@@ -66,6 +66,8 @@ def analyze_onnx_operators(onnx_path):
 # 执行分析
 if __name__ == "__main__":
     # 替换为你的ONNX模型路径
-    onnx_file = "/root/volume/ctc/kws_encoder_final_simplified.onnx"
+    onnx_file = "/root/volume/ctc/train/v1/kws_encoder_final.onnx"
     # onnx_file = "kws_encoder_final.onnx"  # 也可以分析原始模型
+    analyze_onnx_operators(onnx_file)
+    onnx_file = "/root/volume/ctc/train/v1/kws_encoder_final_simplified.onnx"
     analyze_onnx_operators(onnx_file)
