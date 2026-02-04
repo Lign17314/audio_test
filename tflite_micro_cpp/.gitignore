@@ -1,0 +1,24 @@
+# Build directory
+build/
+
+# TFLite Micro local installation (optional - uncomment to exclude from git)
+# tflite_micro_install/
+
+# Output files
+*.npy
+*.bin
+
+# Compiled binaries
+run_encoder
+run_encoder_16x8
+test_tflite_micro
+test_fbank_extractor
+test_ctc_decoder
+
+# Object files
+*.o
+*.a
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/

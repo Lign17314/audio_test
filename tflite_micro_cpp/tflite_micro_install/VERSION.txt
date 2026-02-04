@@ -1,0 +1,6 @@
+TFLite Micro Installation
+========================
+Installed from: /root/volume/ctc/train/funasr_test/a/tflite-micro
+Install date: 2026年 01月 30日 星期五 18:23:45 CST
+Library: libtensorflow-microlite.a
+Library size: 2.2M
