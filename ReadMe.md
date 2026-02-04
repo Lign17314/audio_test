@@ -1,10 +1,10 @@
 # 1. 提取特征
-python prepare_fbank_features.py /root/volume/ctc/train/funasr_test/test_xiaoyun.wav ./features
-python prepare_fbank_features.py /root/volume/ctc/train/funasr_test/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav ./features
+python prepare_fbank_features.py ../res/test_xiaoyun.wav ./features
+python prepare_fbank_features.py ../res/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav ./features
 
 
 # tflite模型的导出以及校准
-python compare_encoder_backends.py --save-repr-stateful tflite_models/repr_stateful.npz --repr-trans example_kws/merge_trans.txt
+python compare_encoder_backends.py --save-repr-stateful tflite_models/repr_stateful.npz --repr-trans ../res/example_kws/merge_trans.txt
 python export_tflite.py --repr-stateful tflite_models/repr_stateful.npz
 python compare_encoder_backends.py
 

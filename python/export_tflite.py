@@ -290,7 +290,7 @@ def main():
         print("ℹ️  XNNPACK delegate 已禁用（确保 TFLite Micro 兼容性）")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    ckpt_path = os.path.join(script_dir, "finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
+    ckpt_path = os.path.join(script_dir, "../res/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
     out_dir = os.path.join(script_dir, "tflite_models")
     os.makedirs(out_dir, exist_ok=True)
 

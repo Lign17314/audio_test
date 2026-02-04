@@ -395,7 +395,7 @@ if [ "${INPUT_FILE}" = "../features/test_xiaoyun_fbank.npy" ] || [ "${INPUT_FILE
     
     # 定义测试用例列表
     declare -a TEST_CASES=(
-        "../features/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21_fbank.npy|output_logits_16x8_new_audio.npy|/root/volume/ctc/train/funasr_test/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav"
+        "../features/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21_fbank.npy|output_logits_16x8_new_audio.npy|/root/volume/ctc/ctc_tflite_micro/python/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav"
     )
     
     for test_case in "${TEST_CASES[@]}"; do

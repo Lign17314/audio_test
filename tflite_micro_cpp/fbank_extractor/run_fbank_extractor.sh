@@ -30,7 +30,7 @@ for arg in "$@"; do
     echo "Arguments:"
     echo "  input.wav  - 输入 WAV 文件路径 (默认: ../../example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav)"
     echo "  output.npy - 输出 fbank 特征文件 (默认: output_fbank.npy)"
-    echo "  cmvn_file  - CMVN 归一化文件路径 (默认: /root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2)"
+    echo "  cmvn_file  - CMVN 归一化文件路径 (默认: /root/volume/ctc/ctc_tflite_micro/res/am.mvn.dim80_l2r2)"
     echo ""
     echo "Options:"
     echo "  --skip-build  - 跳过编译步骤（即使可执行文件不存在）"
@@ -75,7 +75,7 @@ set -- "${POSITIONAL_ARGS[@]}"
 DEFAULT_WAV="../../example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav"
 WAV_FILE="${1:-${DEFAULT_WAV}}"
 OUTPUT_FILE="${2:-output_fbank.npy}"
-CMVN_FILE="${3:-/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2}"
+CMVN_FILE="${3:-/root/volume/ctc/ctc_tflite_micro/res/am.mvn.dim80_l2r2}"
 
 # 颜色输出
 RED='\033[0;31m'

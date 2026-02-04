@@ -412,7 +412,7 @@ WavFrontend_config = {
     "frame_shift": 10,
     "lfr_m": 5,
     "lfr_n": 3,
-    "cmvn_file": "/root/volume/ctc/speech_charctc_kws_phone-xiaoyun/funasr/am.mvn.dim80_l2r2",
+    "cmvn_file": "/root/volume/ctc/ctc_tflite_micro/res/am.mvn.dim80_l2r2",
 }
 from torch.nn.utils.rnn import pad_sequence
 from wav_frontend import WavFrontend
@@ -459,31 +459,31 @@ if __name__ == "__main__":
 
     load_pretrained_model(
         model=model_kws,
-        path="/root/volume/ctc/train/funasr_test/a/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt",
+        path="/root/volume/ctc/ctc_tflite_micro/python/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt",
         ignore_init_mismatch=True,  # 允许 Conv2d->Conv1d 的形状不匹配
         oss_bucket=None,
         scope_map=[],
         excludes=["ctc"],
     )
     # 自动转换 Conv2d 权重到 Conv1d（从 checkpoint 加载）
-    convert_conv2d_to_conv1d_weights(model_kws, checkpoint_path="/root/volume/ctc/train/funasr_test/a/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
+    convert_conv2d_to_conv1d_weights(model_kws, checkpoint_path="/root/volume/ctc/ctc_tflite_micro/python/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
 
     model_kws_export = FsmnKWS()
     model_kws_export.eval()
     test_wavs = [
-        "/root/volume/ctc/train/funasr_test/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav",
-        "/root/volume/ctc/train/funasr_test/test_xiaoyun.wav",
+        "/root/volume/ctc/ctc_tflite_micro/python/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav",
+        "/root/volume/ctc/ctc_tflite_micro/python/test_xiaoyun.wav",
     ]
 
     load_pretrained_model(
         model=model_kws_export,
-        path="/root/volume/ctc/train/funasr_test/a/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt",
+        path="/root/volume/ctc/ctc_tflite_micro/python/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt",
         ignore_init_mismatch=True,
         oss_bucket=None,
         scope_map=[],
         excludes=["ctc"],
     )
-    convert_conv2d_to_conv1d_weights(model_kws_export, checkpoint_path="/root/volume/ctc/train/funasr_test/a/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
+    convert_conv2d_to_conv1d_weights(model_kws_export, checkpoint_path="/root/volume/ctc/ctc_tflite_micro/python/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
 
     with torch.no_grad():
         # 保证误差可复现与一致：固定随机种子；统一 float32、避免混合精度带来额外差异

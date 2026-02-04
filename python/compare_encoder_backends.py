@@ -28,7 +28,7 @@ from a2 import FsmnKWS, FSMNExport
 
 # 路径（与 a2 / export_tflite 一致）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CKPT_PATH = os.path.join(SCRIPT_DIR, "finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
+CKPT_PATH = os.path.join(SCRIPT_DIR, "../res/finetune_fsmn_4e_l10r2_250_128_fdim80_t2599_xiaoyun_xiaoyun.pt")
 TFLITE_MODELS_DIR = os.path.join(SCRIPT_DIR, "tflite_models")
 ONNX_STATEFUL_PATH = os.path.join(TFLITE_MODELS_DIR, "fsmn_encoder_stateful.onnx")
 TFLITE_STATEFUL_PATHS = {
@@ -528,8 +528,8 @@ def main():
 
     # 与 a2.py 一致：example_kws 在项目上层目录
     test_wavs = [
-        os.path.join(SCRIPT_DIR, "example_kws", "wav", "20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav"),
-        os.path.join(SCRIPT_DIR, "test_xiaoyun.wav"),
+        os.path.join(SCRIPT_DIR, "..", "res", "example_kws", "wav", "20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav"),
+        os.path.join(SCRIPT_DIR, "..", "res", "test_xiaoyun.wav"),
     ]
     test_wavs = [w for w in test_wavs if os.path.isfile(w)]
     if not test_wavs:
