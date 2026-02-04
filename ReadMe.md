@@ -13,6 +13,14 @@ python compare_encoder_backends.py
 cd tflite_micro_cpp/streaming_pipe
 ./run_30ms_threaded_16x8_int16.sh
 
+
+
+
+
+
+
+
+
 # 步骤 1: 提取 FBank 特征
 cd tflite_micro_cpp/streaming_fbank_only
 ./run.sh
