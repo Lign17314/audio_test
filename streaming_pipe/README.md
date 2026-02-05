@@ -2,6 +2,34 @@
 
 独立的流式FBank特征提取器和TFLite Micro编码器推理，用于实时音频特征提取和关键词识别。
 
+## 🔥 关键词唤醒解码器（新增）
+
+**快速开始:** [STATE_MACHINE_README.md](STATE_MACHINE_README.md) | [QUICK_START_KWS.md](QUICK_START_KWS.md)
+
+我们提供了三种关键词唤醒解码方法，其中**状态机方法**性能最优：
+
+| 方法 | 处理时间 | 内存占用 | 推荐度 |
+|------|---------|---------|--------|
+| **状态机方法** ⭐ | **0.35 ms** | **~1 KB** | ⭐⭐⭐⭐⭐ |
+| 简化 Beam Search | 3.33 ms | ~10 KB | ⭐⭐⭐⭐ |
+| 完整 Beam Search | 3.56 ms | ~50 KB | ⭐⭐⭐ |
+
+**测试命令:**
+```bash
+# 对比三种方法
+python test_decoders.py build/streaming_fbank_30ms_threaded_16x8_int16_logits.npy
+
+# 可视化演示状态机
+python demo_state_machine.py build/streaming_fbank_30ms_threaded_16x8_int16_logits.npy
+```
+
+**文档:**
+- [STATE_MACHINE_README.md](STATE_MACHINE_README.md) - 状态机方法完整指南
+- [KWS_DECODER_COMPARISON.md](KWS_DECODER_COMPARISON.md) - 三种方法详细对比
+- [PERFORMANCE_RESULTS.md](PERFORMANCE_RESULTS.md) - 性能测试结果
+
+---
+
 ## 目录结构
 
 ```

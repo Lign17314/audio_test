@@ -262,7 +262,8 @@ def main():
                     break
                     
             if hit_keyword is not None:
-                # 对置信度取平方根（几何平均）
+                # 计算置信度：使用几何平均（正确的方法）
+                # 几何平均 = (p1 × p2 × ... × pn)^(1/n)
                 hit_score = math.sqrt(hit_score)
                 break
         

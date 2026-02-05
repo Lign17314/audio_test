@@ -91,6 +91,27 @@ target_link_libraries(streaming_fbank_30ms_threaded_16x8_int16
     m        # Math library
 )
 
+# Create 30ms threaded 16x8 INT16 with KWS decoder (Keyword Spotting)
+set(SOURCES_30MS_THREADED_16X8_INT16_KWS
+    src/streaming_fbank_30ms_threaded_16x8_int16_kws.cc
+    src/streaming_fbank_extractor.cc
+    src/streaming_fbank_extractor_int16.cc
+    src/fbank_extractor/fbank_extractor.cc
+    src/fbank_extractor/wav_reader.cc
+)
+
+add_executable(streaming_fbank_30ms_threaded_16x8_int16_kws ${SOURCES_30MS_THREADED_16X8_INT16_KWS})
+
+target_include_directories(streaming_fbank_30ms_threaded_16x8_int16_kws PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/inc
+)
+
+target_link_libraries(streaming_fbank_30ms_threaded_16x8_int16_kws
+    ${CMAKE_CURRENT_SOURCE_DIR}/tflite_micro_install/lib/libtensorflow-microlite.a
+    pthread  # Threading library
+    m        # Math library
+)
+
 # Test CMVN loading
 set(SOURCES_TEST_CMVN
     src/test_cmvn_loading.cc
@@ -117,3 +138,4 @@ message(STATUS "Configured Streaming FBank with Threaded Encoder")
 message(STATUS "  Float32 version: ${SOURCES_30MS_THREADED}")
 message(STATUS "  16x8 version: ${SOURCES_30MS_THREADED_16X8}")
 message(STATUS "  16x8 INT16 optimized version: ${SOURCES_30MS_THREADED_16X8_INT16}")
+message(STATUS "  16x8 INT16 with KWS decoder: ${SOURCES_30MS_THREADED_16X8_INT16_KWS}")

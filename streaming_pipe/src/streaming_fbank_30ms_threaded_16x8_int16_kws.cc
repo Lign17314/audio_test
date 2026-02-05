@@ -35,7 +35,7 @@
 
 #include "streaming_fbank_extractor.h"
 #include "../fbank_extractor/wav_reader.h"
-#include "../inc/kws_decoder.h"  // 添加关键词检测器
+#include "../inc/kws_decoder.h"
 
 // TFLite Micro headers
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -341,13 +341,16 @@ void consumer_thread(FeatureQueue* queue,
     std::vector<int> keyword_seq = {1462, 976, 1462, 976};
     SimpleKwsDecoder kws_decoder(keyword_seq, 0.05f, 0);
     
-    printf("[Consumer] ========================================\n");
-    printf("[Consumer] KWS Decoder Initialized\n");
-    printf("[Consumer] ========================================\n");
-    printf("[Consumer]   Keyword:    小云小云\n");
-    printf("[Consumer]   Tokens:     1462, 976, 1462, 976\n");
-    printf("[Consumer]   Threshold:  0.05\n");
-    printf("[Consumer] ========================================\n\n");
+    // 保存检测结果（因为reset()会清除状态）
+    bool keyword_detected = false;
+    float keyword_confidence = 0.0f;
+    int keyword_frame = -1;  // 保存检测到的帧号
+    
+    printf("[Consumer] KWS Decoder initialized\n");
+    printf("[Consumer]   Keyword: 小云小云\n");
+    printf("[Consumer]   Token sequence: 1462, 976, 1462, 976\n");
+    printf("[Consumer]   Threshold: 0.05\n");
+    printf("\n");
     
     // ========================================
     // 步骤1：加载TFLite模型
@@ -740,28 +743,18 @@ void consumer_thread(FeatureQueue* queue,
     // 宏：设置cache输入（支持量化）
     #define SET_CACHE_INPUT(cache_idx) \
         do { \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) start\n", cache_idx); \
-            fflush(stdout); \
             if (cache_input_indices[cache_idx] < 0 || \
                 static_cast<size_t>(cache_input_indices[cache_idx]) >= interpreter.inputs_size()) { \
                 printf("[Consumer] ERROR: Cache[%zu] invalid index %d (inputs_size=%zu)\n", \
                        cache_idx, cache_input_indices[cache_idx], interpreter.inputs_size()); \
                 return; \
             } \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) getting tensor_idx\n", cache_idx); \
-            fflush(stdout); \
             int tensor_idx = subgraph->inputs()->Get(cache_input_indices[cache_idx]); \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) tensor_idx=%d, getting eval_tensor\n", cache_idx, tensor_idx); \
-            fflush(stdout); \
             TfLiteEvalTensor* eval_tensor = interpreter.GetTensor(tensor_idx, 0); \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) got eval_tensor=%p\n", cache_idx, (void*)eval_tensor); \
-            fflush(stdout); \
             if (!eval_tensor || !eval_tensor->data.raw) { \
                 printf("[Consumer] ERROR: Cache[%zu] eval_tensor is NULL or data.raw is NULL\n", cache_idx); \
                 return; \
             } \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) type=%d\n", cache_idx, eval_tensor->type); \
-            fflush(stdout); \
             if (eval_tensor->type == kTfLiteInt8) { \
                 int8_t* data = eval_tensor->data.int8; \
                 if (!data) { \
@@ -788,8 +781,6 @@ void consumer_thread(FeatureQueue* queue,
                 } \
                 memcpy(data, caches[cache_idx].data(), caches[cache_idx].size() * sizeof(float)); \
             } \
-            printf("[Consumer] SET_CACHE_INPUT(%zu) done\n", cache_idx); \
-            fflush(stdout); \
         } while(0)
     
     // 宏：读取cache输出（支持反量化）
@@ -818,40 +809,24 @@ void consumer_thread(FeatureQueue* queue,
     // 宏：设置主输入
     #define SET_MAIN_INPUT(input_data_vec) \
         do { \
-            printf("[Consumer] SET_MAIN_INPUT start, size=%zu\n", input_data_vec.size()); \
-            fflush(stdout); \
             int tensor_idx = subgraph->inputs()->Get(input_tensor_idx); \
-            printf("[Consumer] SET_MAIN_INPUT tensor_idx=%d\n", tensor_idx); \
-            fflush(stdout); \
             TfLiteEvalTensor* eval_tensor = interpreter.GetTensor(tensor_idx, 0); \
-            printf("[Consumer] SET_MAIN_INPUT eval_tensor=%p\n", (void*)eval_tensor); \
-            fflush(stdout); \
             if (eval_tensor && eval_tensor->data.raw) { \
-                printf("[Consumer] SET_MAIN_INPUT type=%d\n", eval_tensor->type); \
-                fflush(stdout); \
                 if (eval_tensor->type == kTfLiteInt8) { \
                     int8_t* data = eval_tensor->data.int8; \
-                    printf("[Consumer] SET_MAIN_INPUT INT8 data=%p\n", (void*)data); \
-                    fflush(stdout); \
                     for (size_t i = 0; i < input_data_vec.size(); i++) { \
                         data[i] = QuantizeFloatToInt8(input_data_vec[i], input_scale, input_zero_point); \
                     } \
                 } else if (eval_tensor->type == kTfLiteInt16) { \
                     int16_t* data = eval_tensor->data.i16; \
-                    printf("[Consumer] SET_MAIN_INPUT INT16 data=%p\n", (void*)data); \
-                    fflush(stdout); \
                     for (size_t i = 0; i < input_data_vec.size(); i++) { \
                         data[i] = QuantizeFloatToInt16(input_data_vec[i], input_scale, input_zero_point); \
                     } \
                 } else if (eval_tensor->type == kTfLiteFloat32) { \
                     float* data = eval_tensor->data.f; \
-                    printf("[Consumer] SET_MAIN_INPUT FLOAT32 data=%p\n", (void*)data); \
-                    fflush(stdout); \
                     memcpy(data, input_data_vec.data(), input_data_vec.size() * sizeof(float)); \
                 } \
             } \
-            printf("[Consumer] SET_MAIN_INPUT done\n"); \
-            fflush(stdout); \
         } while(0)
     
     // 宏：设置right_context
@@ -935,8 +910,6 @@ void consumer_thread(FeatureQueue* queue,
             
             if (should_infer) {
                 chunk_count++;
-                printf("[Consumer] Chunk %zu: Processing %zu frames (total received: %zu)\n",
-                       chunk_count, frame_buffer.size(), total_frames_received);
                 
                 // 准备输入数据（10帧）
                 std::vector<float> input_data(CHUNK_SIZE * FEATURE_DIM);
@@ -958,35 +931,21 @@ void consumer_thread(FeatureQueue* queue,
                 // 设置输入tensors
                 // ========================================
                 
-                printf("[Consumer] Setting cache inputs...\n");
-                fflush(stdout);
-                
                 // 1. 设置cache inputs
                 for (size_t i = 0; i < NUM_CACHE_LAYERS; i++) {
                     SET_CACHE_INPUT(i);
                 }
                 
-                printf("[Consumer] Setting right_context...\n");
-                fflush(stdout);
-                
                 // 2. 设置right_context
                 SET_RIGHT_CONTEXT(right_context_data);
                 
-                printf("[Consumer] Setting main input...\n");
-                fflush(stdout);
-                
                 // 3. 设置main input
                 SET_MAIN_INPUT(input_data);
-                
-                printf("[Consumer] Running inference...\n");
-                fflush(stdout);
                 
                 // ========================================
                 // 4. 运行推理
                 // ========================================
                 status = interpreter.Invoke();
-                printf("[Consumer] Inference done, status=%d\n", status);
-                fflush(stdout);
                 if (status != kTfLiteOk) {
                     printf("[Consumer] ERROR: Invoke() failed with status %d\n", status);
                     return;
@@ -995,22 +954,14 @@ void consumer_thread(FeatureQueue* queue,
                 // ========================================
                 // 5. 获取输出logits
                 // ========================================
-                printf("[Consumer] Getting output tensor...\n");
-                fflush(stdout);
                 TfLiteTensor* output_tensor = interpreter.output(logits_output_idx);
-                printf("[Consumer] output_tensor=%p\n", (void*)output_tensor);
-                fflush(stdout);
                 if (!output_tensor) {
                     printf("[Consumer] ERROR: Failed to get output tensor\n");
                     return;
                 }
                 
-                printf("[Consumer] Checking output tensor dims...\n");
-                fflush(stdout);
                 // Fix output tensor dims if needed
                 if (!output_tensor->dims) {
-                    printf("[Consumer] output_tensor->dims is NULL, trying to fix...\n");
-                    fflush(stdout);
                     int tensor_idx = subgraph->outputs()->Get(logits_output_idx);
                     TfLiteEvalTensor* eval_tensor = interpreter.GetTensor(tensor_idx, 0);
                     if (eval_tensor && eval_tensor->dims) {
@@ -1018,19 +969,11 @@ void consumer_thread(FeatureQueue* queue,
                     }
                 }
                 
-                printf("[Consumer] Determining output dimension...\n");
-                fflush(stdout);
                 // 确定输出维度（第一次推理时）- 使用 eval_tensor 而不是 TfLiteTensor
                 if (output_dim == 0) {
-                    printf("[Consumer] output_dim is 0, getting eval_tensor for output...\n");
-                    fflush(stdout);
                     int output_tensor_idx = subgraph->outputs()->Get(logits_output_idx);
                     TfLiteEvalTensor* output_eval_tensor = interpreter.GetTensor(output_tensor_idx, 0);
-                    printf("[Consumer] output_eval_tensor=%p\n", (void*)output_eval_tensor);
-                    fflush(stdout);
                     if (output_eval_tensor && output_eval_tensor->dims) {
-                        printf("[Consumer] eval dims exists, size=%d\n", output_eval_tensor->dims->size);
-                        fflush(stdout);
                         if (output_eval_tensor->dims->size >= 3) {
                             output_dim = output_eval_tensor->dims->data[2];
                             printf("[Consumer] Output dimension: %zu\n", output_dim);
@@ -1055,8 +998,9 @@ void consumer_thread(FeatureQueue* queue,
                     all_logits.push_back(logit_frame);
                     
                     // ========================================
-                    // 实时关键词检测
+                    // 关键词检测
                     // ========================================
+                    
                     // 1. 应用 softmax
                     std::vector<float> probs(output_dim);
                     float max_logit = *std::max_element(logit_frame.begin(), logit_frame.end());
@@ -1075,27 +1019,35 @@ void consumer_thread(FeatureQueue* queue,
                     auto [detected, score] = kws_decoder.process_frame(probs.data(), output_dim);
                     
                     if (detected) {
-                        size_t detection_frame = all_logits.size() - 1;
-                        float detection_time_ms = detection_frame * 10.0f;
+                        int detection_frame = all_logits.size() - 1;
+                        // 计算实际音频时间：LFR后帧率 = frame_shift * lfr_n = 10ms * 3 = 30ms/帧
+                        float audio_time_ms = detection_frame * 30.0f;
                         
                         printf("\n");
                         printf("========================================\n");
-                        printf("✅ KEYWORD DETECTED!\n");
+                        printf("🎯 REAL-TIME DETECTION\n");
                         printf("========================================\n");
                         printf("Keyword:    小云小云\n");
-                        printf("Frame:      %zu\n", detection_frame);
-                        printf("Time:       %.2f ms\n", detection_time_ms);
+                        printf("Frame:      %d\n", detection_frame);
                         printf("Confidence: %.4f\n", score);
+                        printf("Audio Time: %.2f ms (%.2f s)\n", audio_time_ms, audio_time_ms / 1000.0f);
                         printf("========================================\n");
                         printf("\n");
                         
-                        // 可选：检测到后停止处理
-                        // goto cleanup_and_exit;
+                        // 保存检测结果
+                        keyword_detected = true;
+                        keyword_confidence = score;
+                        keyword_frame = detection_frame;
+                        
+                        // 重置解码器，避免重复检测
+                        kws_decoder.reset();
                     }
                 }
                 
-                printf("[Consumer] Saved %zu logit frames (total: %zu)\n",
-                       CHUNK_SIZE, all_logits.size());
+                // 每10个chunk打印一次进度
+                if (chunk_count % 10 == 0) {
+                    printf("[Consumer] Processed %zu chunks, %zu frames\n", chunk_count, all_logits.size());
+                }
                 
                 // ========================================
                 // 6. 更新cache
@@ -1119,7 +1071,6 @@ void consumer_thread(FeatureQueue* queue,
     // 步骤8：处理剩余的帧（flush）
     // ========================================
     if (!frame_buffer.empty()) {
-        printf("[Consumer] Flushing %zu remaining frames\n", frame_buffer.size());
         
         size_t remaining_count = frame_buffer.size();
         
@@ -1166,6 +1117,41 @@ void consumer_thread(FeatureQueue* queue,
                     std::vector<float> logit_frame(output_dim);
                     READ_OUTPUT_LOGIT_FRAME(logit_frame, i);
                     all_logits.push_back(logit_frame);
+                    
+                    // 关键词检测
+                    std::vector<float> probs(output_dim);
+                    float max_logit = *std::max_element(logit_frame.begin(), logit_frame.end());
+                    float sum_exp = 0.0f;
+                    for (size_t j = 0; j < output_dim; j++) {
+                        probs[j] = std::exp(logit_frame[j] - max_logit);
+                        sum_exp += probs[j];
+                    }
+                    for (size_t j = 0; j < output_dim; j++) {
+                        probs[j] /= sum_exp;
+                    }
+                    
+                    auto [detected, score] = kws_decoder.process_frame(probs.data(), output_dim);
+                    if (detected) {
+                        int detection_frame = all_logits.size() - 1;
+                        float audio_time_ms = detection_frame * 30.0f;
+                        
+                        printf("\n========================================\n");
+                        printf("🎯 REAL-TIME DETECTION (Flush 1)\n");
+                        printf("========================================\n");
+                        printf("Keyword:    小云小云\n");
+                        printf("Frame:      %d\n", detection_frame);
+                        printf("Confidence: %.4f\n", score);
+                        printf("Audio Time: %.2f ms (%.2f s)\n", audio_time_ms, audio_time_ms / 1000.0f);
+                        printf("========================================\n\n");
+                        
+                        // 保存检测结果
+                        keyword_detected = true;
+                        keyword_confidence = score;
+                        keyword_frame = detection_frame;
+                        
+                        // 重置解码器，避免重复检测
+                        kws_decoder.reset();
+                    }
                 }
             }
             
@@ -1183,7 +1169,6 @@ void consumer_thread(FeatureQueue* queue,
         // 处理最后不足12帧的情况
         if (!frame_buffer.empty()) {
             size_t final_count = frame_buffer.size();
-            printf("[Consumer] Final flush: %zu frames\n", final_count);
             
             // 按照 run_encoder.cc 的方式处理：
             // 如果剩余帧数 >= 12，继续正常处理（10帧输入 + 2帧right_context）
@@ -1231,6 +1216,41 @@ void consumer_thread(FeatureQueue* queue,
                         std::vector<float> logit_frame(output_dim);
                         READ_OUTPUT_LOGIT_FRAME(logit_frame, i);
                         all_logits.push_back(logit_frame);
+                        
+                        // 关键词检测
+                        std::vector<float> probs(output_dim);
+                        float max_logit = *std::max_element(logit_frame.begin(), logit_frame.end());
+                        float sum_exp = 0.0f;
+                        for (size_t j = 0; j < output_dim; j++) {
+                            probs[j] = std::exp(logit_frame[j] - max_logit);
+                            sum_exp += probs[j];
+                        }
+                        for (size_t j = 0; j < output_dim; j++) {
+                            probs[j] /= sum_exp;
+                        }
+                        
+                        auto [detected, score] = kws_decoder.process_frame(probs.data(), output_dim);
+                        if (detected) {
+                            int detection_frame = all_logits.size() - 1;
+                            float audio_time_ms = detection_frame * 30.0f;
+                            
+                            printf("\n========================================\n");
+                            printf("🎯 REAL-TIME DETECTION (Flush 2)\n");
+                            printf("========================================\n");
+                            printf("Keyword:    小云小云\n");
+                            printf("Frame:      %d\n", detection_frame);
+                            printf("Confidence: %.4f\n", score);
+                            printf("Audio Time: %.2f ms (%.2f s)\n", audio_time_ms, audio_time_ms / 1000.0f);
+                            printf("========================================\n\n");
+                            
+                            // 保存检测结果
+                            keyword_detected = true;
+                            keyword_confidence = score;
+                            keyword_frame = detection_frame;
+                            
+                            // 重置解码器，避免重复检测
+                            kws_decoder.reset();
+                        }
                     }
                 }
                 
@@ -1238,8 +1258,6 @@ void consumer_thread(FeatureQueue* queue,
                 for (size_t i = 0; i < NUM_CACHE_LAYERS; i++) {
                     READ_CACHE_OUTPUT(i);
                 }
-                
-                printf("[Consumer] Flushed chunk: 10 logit frames (total: %zu)\n", all_logits.size());
                 
                 // 移除已处理的10帧
                 std::vector<std::vector<float>> remaining(
@@ -1252,9 +1270,6 @@ void consumer_thread(FeatureQueue* queue,
             while (!frame_buffer.empty()) {
                 size_t remaining_frames = frame_buffer.size();
                 size_t current_chunk_size = std::min(remaining_frames, CHUNK_SIZE);
-                
-                printf("[Consumer] Final chunk: %zu frames remaining, processing %zu frames\n", 
-                       remaining_frames, current_chunk_size);
                 
                 // 准备输入数据（10帧，不足的用0填充）
                 std::vector<float> input_data(CHUNK_SIZE * FEATURE_DIM, 0.0f);  // 初始化为 0
@@ -1286,8 +1301,6 @@ void consumer_thread(FeatureQueue* queue,
                 SET_MAIN_INPUT(input_data);
                 
                 // 运行推理
-                printf("[Consumer] Running inference for final chunk (%zu frames, rc=%zu)...\n", 
-                       current_chunk_size, available_rc_frames);
                 status = interpreter.Invoke();
                 if (status != kTfLiteOk) {
                     printf("[Consumer] ERROR: Invoke() failed during final chunk\n");
@@ -1298,11 +1311,45 @@ void consumer_thread(FeatureQueue* queue,
                 TfLiteTensor* output_tensor = interpreter.output(logits_output_idx);
                 if (output_tensor) {
                     // 只保存 current_chunk_size 帧（不是全部10帧）
-                    printf("[Consumer] Saving %zu frames from inference output\n", current_chunk_size);
                     for (size_t i = 0; i < current_chunk_size; i++) {
                         std::vector<float> logit_frame(output_dim);
                         READ_OUTPUT_LOGIT_FRAME(logit_frame, i);
                         all_logits.push_back(logit_frame);
+                        
+                        // 关键词检测
+                        std::vector<float> probs(output_dim);
+                        float max_logit = *std::max_element(logit_frame.begin(), logit_frame.end());
+                        float sum_exp = 0.0f;
+                        for (size_t j = 0; j < output_dim; j++) {
+                            probs[j] = std::exp(logit_frame[j] - max_logit);
+                            sum_exp += probs[j];
+                        }
+                        for (size_t j = 0; j < output_dim; j++) {
+                            probs[j] /= sum_exp;
+                        }
+                        
+                        auto [detected, score] = kws_decoder.process_frame(probs.data(), output_dim);
+                        if (detected) {
+                            int detection_frame = all_logits.size() - 1;
+                            float audio_time_ms = detection_frame * 30.0f;
+                            
+                            printf("\n========================================\n");
+                            printf("🎯 REAL-TIME DETECTION (Final Flush)\n");
+                            printf("========================================\n");
+                            printf("Keyword:    小云小云\n");
+                            printf("Frame:      %d\n", detection_frame);
+                            printf("Confidence: %.4f\n", score);
+                            printf("Audio Time: %.2f ms (%.2f s)\n", audio_time_ms, audio_time_ms / 1000.0f);
+                            printf("========================================\n\n");
+                            
+                            // 保存检测结果
+                            keyword_detected = true;
+                            keyword_confidence = score;
+                            keyword_frame = detection_frame;
+                            
+                            // 重置解码器，避免重复检测
+                            kws_decoder.reset();
+                        }
                     }
                 } else {
                     printf("[Consumer] ERROR: output_tensor is NULL!\n");
@@ -1312,9 +1359,6 @@ void consumer_thread(FeatureQueue* queue,
                 for (size_t i = 0; i < NUM_CACHE_LAYERS; i++) {
                     READ_CACHE_OUTPUT(i);
                 }
-                
-                printf("[Consumer] Processed %zu frames (total: %zu)\n", 
-                       current_chunk_size, all_logits.size());
                 
                 // 移除已处理的帧
                 std::vector<std::vector<float>> remaining(
@@ -1333,6 +1377,31 @@ void consumer_thread(FeatureQueue* queue,
     printf("  Total chunks processed: %zu\n", chunk_count);
     printf("  Total logit frames output: %zu\n", all_logits.size());
     printf("  ✅ Encoder inference completed successfully!\n");
+    
+    // ========================================
+    // 输出关键词检测结果
+    // ========================================
+    printf("\n");
+    if (keyword_detected) {
+        float audio_time_ms = keyword_frame * 30.0f;
+        
+        printf("========================================\n");
+        printf("📊 FINAL SUMMARY\n");
+        printf("========================================\n");
+        printf("Status:     ✅ KEYWORD DETECTED\n");
+        printf("Keyword:    小云小云\n");
+        printf("Frame:      %d\n", keyword_frame);
+        printf("Confidence: %.4f\n", keyword_confidence);
+        printf("Audio Time: %.2f ms (%.2f s)\n", audio_time_ms, audio_time_ms / 1000.0f);
+        printf("========================================\n");
+    } else {
+        printf("========================================\n");
+        printf("📊 FINAL SUMMARY\n");
+        printf("========================================\n");
+        printf("Status:     ❌ NO KEYWORD DETECTED\n");
+        printf("========================================\n");
+    }
+    printf("\n");
 }
 
 // ========================================
@@ -1401,8 +1470,9 @@ int main(int argc, char* argv[]) {
     // ========================================
     // 步骤1：配置参数
     // ========================================
-    const char* wav_file = "/root/volume/ctc/ctc_tflite_micro/res/test_xiaoyun.wav";
-    const char* model_file = "/root/volume/ctc/ctc_tflite_micro/python/tflite_models/fsmn_encoder_stateful_16x8.tflite";
+    // 使用命令行参数，如果没有提供则使用默认值
+    const char* wav_file = (argc > 1) ? argv[1] : "/root/volume/ctc/ctc_tflite_micro/res/example_kws/wav/20200707_spk57db_storenoise52db_40cm_xiaoyun_sox_21.wav";
+    const char* model_file = (argc > 2) ? argv[2] : "/root/volume/ctc/ctc_tflite_micro/python/tflite_models/fsmn_encoder_stateful_16x8.tflite";
     const char* output_file = "streaming_fbank_30ms_threaded_16x8_int16_logits.npy";
     
     printf("Configuration:\n");
