@@ -15,7 +15,7 @@ set(TOOLCHAIN_ROOT "/root/volume/ctc/ctc_tflite_micro/host-tools-1.6/gcc/riscv64
 # 交叉编译前缀（musl工具链为riscv64-unknown-linux-musl-，glibc一般为riscv64-linux-gnu-）
 set(CROSS_PREFIX "riscv64-unknown-linux-musl-")
 # 玄铁C906专属架构参数（无需修改，其他RISCV64平台需替换为对应参数）
-set(ARCH_FLAGS "-mcpu=c906fdv -march=rv64imafdcv0p7xthead -mabi=lp64d")
+set(ARCH_FLAGS "-mcpu=c906fdv -march=rv64imafdcv0p7xthead -mabi=lp64d -mcmodel=medany -mno-ldd")
 # C/C++标准（根据项目需求修改，如C99/C17，C++11/C20）
 set(C_STANDARD "gnu11")
 set(CXX_STANDARD "c++17")
