@@ -2,3 +2,4 @@ __pycache__
 /python/tflite_models
 /python/features
 build
+host-tools-1.6

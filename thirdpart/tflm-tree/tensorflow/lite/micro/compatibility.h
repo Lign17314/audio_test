@@ -20,11 +20,14 @@ limitations under the License.
 // applications we want to avoid this, and won't be calling new/delete on these
 // objects, so we need to override the default implementation with one that does
 // nothing to avoid linking in ::delete().
-// This macro needs to be included in all subclasses of a virtual base class in
-// the private section.
+// This macro needs to be included in all subclasses of a virtual base class.
+// Note: Forces public access for delete operators to allow placement new usage,
+// but does not restore the previous access level (user must manage this).
 #ifdef TF_LITE_STATIC_MEMORY
-#define TF_LITE_REMOVE_VIRTUAL_DELETE \
-  void operator delete(void* p) {}
+#define TF_LITE_REMOVE_VIRTUAL_DELETE       \
+ public:                                    \
+  void operator delete(void* p) {}          \
+  void operator delete(void*, void*) {}
 #else
 #define TF_LITE_REMOVE_VIRTUAL_DELETE
 #endif
