@@ -55,13 +55,7 @@ set(CMAKE_CXX_FLAGS      "${ARCH_FLAGS} -std=${CXX_STANDARD} ${COMMON_FLAGS} -fP
 set(CMAKE_ASM_FLAGS      "${ARCH_FLAGS} -x assembler-with-cpp" CACHE STRING "" FORCE) # 汇编支持C预处理（如#include/#define）
 
 # 8. 链接器标志（单独拆分，避免编译阶段识别错误，核心！）
-set(CMAKE_EXE_LINKER_FLAGS 
-    "-Wl,-gc-sections"  # 链接器垃圾回收：删除未使用的段，大幅减小体积
-    " -lm"              # 链接数学库（sin/cos/acos等，项目无用可删除）
-    " -lpthread"        # 链接线程库（pthread_create等，项目无用可删除）
-    " -lstdc++"         # 链接C++标准库（纯C项目可删除）
-    CACHE STRING "" FORCE
-)
+set(CMAKE_EXE_LINKER_FLAGS "-Wl,--gc-sections -lm -lpthread -lstdc++" CACHE STRING "" FORCE)
 
 # 注意：不设置 CMAKE_STATIC_LINKER_FLAGS
 # 静态库归档器(ar)只是打包目标文件，不需要链接器标志
