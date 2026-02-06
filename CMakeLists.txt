@@ -12,3 +12,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(cmake/toolchain-riscv64.cmake)
 
 add_subdirectory(thirdpart/tflm-tree)
+add_subdirectory(app)

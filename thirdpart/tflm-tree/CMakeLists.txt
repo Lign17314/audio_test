@@ -34,10 +34,18 @@ file(GLOB_RECURSE THIRD_PARTY_SRCS
 )
 list(FILTER THIRD_PARTY_SRCS EXCLUDE REGEX "test|example|demo")
 
+# 递归查找signal/下所有C/C++源码（信号处理库，包含kiss_fft）
+file(GLOB_RECURSE SIGNAL_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/signal/**/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/signal/**/*.cc
+)
+list(FILTER SIGNAL_SRCS EXCLUDE REGEX "test|example|demo")
+
 # ========================= 生成TFLM静态库 libtflm.a =========================
 add_library(tflm STATIC
     ${TFLM_CORE_SRCS}
     ${THIRD_PARTY_SRCS}
+    ${SIGNAL_SRCS}
 )
 # 链接必要系统库（数学库、线程库）
 target_link_libraries(tflm m pthread)
